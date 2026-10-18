@@ -1,0 +1,20 @@
+{
+  "editor.rulers": [
+    {
+      "column": 72,
+      "color": "#4a4f63"
+    },
+    {
+      "column": 88,
+      "color": "#7a8ad1"
+    }
+  ],
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "prettier.printWidth": 88,
+  "prettier.proseWrap": "always",
+}

@@ -9,45 +9,23 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  PLATFORM: Linux x86_64
+  TARGET: x86_64-unknown-linux-gnu
+  ARTIFACT_NAME: knp
+  ASSET_NAME: knp-linux-x86_64
 
 jobs:
-  build:
-    name: Build - ${{ matrix.platform }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: Linux x86_64
-            target: x86_64-unknown-linux-gnu
-            artifact_name: knp
-            asset_name: knp-linux-x86_64
-
-          - os: windows-latest
-            platform: Windows x86_64
-            target: x86_64-pc-windows-msvc
-            artifact_name: knp.exe
-            asset_name: knp-windows-x86_64.exe
-
-          - os: macos-latest
-            platform: macOS x86_64
-            target: x86_64-apple-darwin
-            artifact_name: knp
-            asset_name: knp-macos-x86_64
-
-          - os: macos-latest
-            platform: macOS ARM64
-            target: aarch64-apple-darwin
-            artifact_name: knp
-            asset_name: knp-macos-aarch64
+  build-cli:
+    name: Build KNP
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v7
 
-      - name: Setup Rust
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ env.TARGET }}
 
       - name: Cache Cargo
         uses: actions/cache@v6
@@ -59,62 +37,60 @@ jobs:
             ~/.cargo/git/db/
             target/
           key:
-            ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            ${{ runner.os }}-${{ env.TARGET }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-
+            ${{ runner.os }}-${{ env.TARGET }}-cargo-
 
       - name: Build Release Binary
-        run: cargo build --release --target ${{ matrix.target }} --verbose
+        run: cargo build --release --target ${{ env.TARGET }} --verbose
 
       - name: Rename Binary
         run:
-          mv target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{
-          matrix.asset_name }}
+          mv target/${{ env.TARGET }}/release/${{ env.ARTIFACT_NAME }} ${{
+          env.ASSET_NAME }}
         shell: bash
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.asset_name }}
-          path: ${{ matrix.asset_name }}
+          name: ${{ env.ASSET_NAME }}
+          path: ${{ env.ASSET_NAME }}
 
   release:
-    name: Create GitHub Release
-    needs: build
+    name: Release
+    needs: build-cli
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v7
 
-      - name: Get Version
-        id: version
+      - name: Resolve Version and Check Tag
+        id: get-version
         run: |
-          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          tag="v$version"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Check Tag
-        id: check_tag
-        run: |
-          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | grep -q .; then
+          if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then
+            echo "::notice::Tag $tag already exists, skipping release"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download Artifacts
-        if: steps.check_tag.outputs.exists == 'false'
+        if: steps.get-version.outputs.exists == 'false'
         uses: actions/download-artifact@v8
 
       - name: Create Tag and Release
-        if: steps.check_tag.outputs.exists == 'false'
+        if: steps.get-version.outputs.exists == 'false'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ steps.get-version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
           files: |
             **/knp-*
-          draft: false
-          prerelease: false
